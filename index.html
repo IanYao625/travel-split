@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yao 旅遊記帳</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #228be6;
+            --success: #40c057;
+            --danger: #fa5252;
+            --gray: #adb5bd;
+            --light-gray: #e9ecef;
+            --bg-overlay: rgba(255, 255, 255, 0.9);
+        }
+        body {
+            font-family: -apple-system, "Segoe UI", sans-serif;
+            margin: 0;
+            padding-bottom: 120px;
+            color: #495057;
+            background: url('https://www.ourchinastory.com/images/cover/travel-leisure/2021/12/horizon/1466367375685521408.jpg') center/cover fixed;
+            transition: 0.3s;
+        }
+        .container { max-width: 500px; margin: 0 auto; padding: 15px; }
+        .card {
+            background: var(--bg-overlay);
+            backdrop-filter: blur(10px);
+            border-radius: 25px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .notice-card { background: #fff9db !important; border-left: 8px solid #fcc419 !important; color: #856404; text-align: center; }
+        input, select, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 2px solid #e9ecef; border-radius: 12px; font-size: 1rem; box-sizing: border-box; }
+        .primary-btn { background: linear-gradient(135deg, #4dabf7, #228be6); color: white; border: none; width: 100%; padding: 15px; border-radius: 15px; font-weight: bold; cursor: pointer; font-size: 1rem; }
+        .primary-btn:active { opacity: 0.85; }
+        .history-card { background: white; border-radius: 20px; padding: 18px; margin-bottom: 15px; border-left: 6px solid var(--primary); box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .history-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .history-title { font-size: 1.1rem; font-weight: 800; color: #333; }
+        .history-amount { font-size: 1.2rem; font-weight: 900; color: var(--primary); }
+        .history-meta { font-size: 0.8rem; color: #adb5bd; margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .history-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+        .tag-pill { font-size: 0.75rem; padding: 3px 10px; border-radius: 20px; background: #f1f3f5; color: #495057; }
+        .tag-pill.payer { background: #e7f5ff; color: #228be6; font-weight: bold; }
+        .history-actions { display: flex; gap: 10px; border-top: 1px solid #f1f3f5; padding-top: 10px; }
+        .action-btn { flex: 1; border: none; background: none; font-size: 0.85rem; font-weight: bold; cursor: pointer; padding: 5px; border-radius: 8px; transition: 0.2s; }
+        .edit-btn { color: var(--primary); background: #e7f5ff; }
+        .del-btn { color: var(--danger); background: #fff5f5; }
+        .cur-tag { padding: 8px 12px; border: 1px solid #ddd; border-radius: 10px; cursor: pointer; background: var(--light-gray); color: #888; display: inline-block; margin: 2px; transition: 0.2s; font-size: 0.9rem; }
+        .cur-tag.active { background: var(--primary); color: white; border-color: var(--primary); font-weight: bold; }
+        .collapse-panel { display: none; margin-top: 10px; background: rgba(0,0,0,0.05); padding: 15px; border-radius: 15px; border: 1px solid #ddd; }
+        .bottom-nav { position: fixed; bottom: 15px; left: 15px; right: 15px; background: white; display: flex; padding: 10px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 1000; }
+        .nav-item { text-align: center; flex: 1; color: #adb5bd; cursor: pointer; padding: 5px 0; border-radius: 12px; transition: 0.2s; }
+        .nav-item.active { color: var(--primary); font-weight: bold; background: #e7f5ff; }
+        .nav-item b { font-size: 1.4rem; display: block; }
+        .page { display: none; }
+        .page.active { display: block; }
+        #login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #1c7ed6, #1098ad); z-index: 5000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .select-all-btn { background: none; border: 1px solid var(--primary); color: var(--primary); border-radius: 8px; padding: 4px 10px; font-size: 0.75rem; cursor: pointer; float: right; margin-left: 5px; }
+        .footer-version { text-align: center; font-size: 0.75rem; color: #ced4da; margin-top: 30px; letter-spacing: 1px; }
+        .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; border-radius: 20px; font-size: 0.85rem; z-index: 9999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+        .toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+
+<!-- Toast 通知 -->
+<div class="toast" id="toast"></div>
+
+<!-- 登入頁 -->
+<div id="login-overlay">
+    <div class="card" style="width: 100%; max-width: 400px; text-align: center;">
+        <h2 style="color: var(--primary); margin-bottom: 5px;">✈️ Yao 旅遊記帳</h2>
+        <p style="font-size: 0.85rem; color: var(--gray); margin-bottom: 20px;">準備好開啟這趟敗家旅程了嗎？</p>
+        <div id="roomListArea" style="margin-bottom: 15px; display: flex; flex-wrap: wrap; justify-content: center;"></div>
+        <input type="text" id="roomNameInput" placeholder="旅程空間名稱" oninput="api.checkRoom()">
+        <input type="password" id="roomPassInput" placeholder="輸入通關密語">
+        <div id="newRoomSetup" style="display: none; margin-top: 10px;">
+            <p style="font-size: 0.85rem; font-weight: bold; color: var(--primary);">🌟 新空間！請選擇主幣別：</p>
+            <div id="loginCurList"></div>
+        </div>
+        <button class="primary-btn" onclick="api.initRoom()" style="margin-top: 20px;">開啟傳送門 ➔</button>
+        <p id="roomHintTxt" style="color: var(--danger); font-size: 0.8rem; margin-top: 10px; font-weight: bold;"></p>
+    </div>
+</div>
+
+<!-- 主畫面 -->
+<div class="container" id="main-content" style="display: none;">
+    <div class="card notice-card">
+        <input type="text" id="tripTitle" style="font-size: 1.4rem; font-weight: bold; text-align: center; border: none; background: none; color: inherit; width: 100%; margin-bottom:0;" onchange="api.saveState()">
+        <div id="tripCurBadge" style="text-align: center; font-size: 0.75rem; opacity: 0.6; margin-top: 5px;"></div>
+        <textarea id="noticeContent" style="background: none; border: none; font-size: 0.9rem; margin-top: 10px; color: inherit; width: 100%; text-align: center; resize: none;" placeholder="旅行小叮嚀..." onchange="api.saveState()"></textarea>
+    </div>
+
+    <!-- 記帳頁 -->
+    <div id="page-add" class="page active">
+        <div class="card">
+            <h3 id="addBillTitle">✍️ 記一筆花費</h3>
+            <input type="text" id="billDesc" placeholder="吃了什麼、買了什麼？">
+            <input type="number" id="billAmount" placeholder="金額" inputmode="decimal">
+            <textarea id="billNote" placeholder="備註（可不填）" style="height: 60px; resize: none;"></textarea>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin: 10px 0;">
+                <span style="font-size: 0.9rem; font-weight: bold; color: var(--primary);">誰出的錢？</span>
+                <button onclick="togglePayerMode()" style="border: none; background: none; color: var(--primary); cursor: pointer; font-size: 0.8rem;">🔄 多人代付</button>
+            </div>
+            <div id="singlePayerArea"><select id="billPayerSelect"></select></div>
+            <div id="multiPayerArea" style="display: none; grid-template-columns: 1fr 1fr; gap: 10px;"></div>
+            <div style="margin-top: 15px; margin-bottom: 10px; overflow: hidden;">
+                <span style="font-weight: bold; font-size: 0.9rem;">👥 誰要分攤？</span>
+                <button class="select-all-btn" onclick="ui.toggleAllSplit(false)">清空</button>
+                <button class="select-all-btn" onclick="ui.toggleAllSplit(true)">全選</button>
+            </div>
+            <div id="splitCheckboxes" style="display: flex; flex-wrap: wrap; gap: 5px;"></div>
+            <button class="primary-btn" id="submitBillBtn" onclick="api.addBill()" style="margin-top: 20px;">確認記帳 📥</button>
+            <button class="primary-btn" id="cancelEditBtn" onclick="ui.cancelEdit()" style="margin-top: 10px; background: #868e96; display:none;">取消編輯</button>
+        </div>
+    </div>
+
+    <!-- 明細頁 -->
+    <div id="page-history" class="page">
+        <div id="historyList"></div>
+    </div>
+
+    <!-- 結算頁 -->
+    <div id="page-settle" class="page">
+        <div class="card" style="text-align: center;">
+            <h3>📊 支出佔比</h3>
+            <div style="max-width: 280px; margin: 0 auto;"><canvas id="spendChart"></canvas></div>
+        </div>
+        <div class="card">
+            <h3>💸 結算方案</h3>
+            <div id="settlementResult"></div>
+        </div>
+    </div>
+
+    <!-- 管理頁 -->
+    <div id="page-manage" class="page">
+        <div class="card">
+            <h4 style="margin:0 0 10px 0;">📂 旅程清單</h4>
+            <div id="archiveList"></div>
+            <button onclick="ui.openNewTripModal()" class="primary-btn" style="background: #495057; margin-top: 10px; padding:12px;">🆕 開啟新旅程</button>
+        </div>
+        <div class="card">
+            <h3>👥 旅伴管理</h3>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="newMemberName" placeholder="旅伴名字" style="margin: 0;">
+                <button onclick="api.addMember()" style="padding: 0 15px; border-radius: 10px; border: none; background: var(--primary); color: white; cursor: pointer; white-space: nowrap;">加入</button>
+            </div>
+            <div id="memberList" style="margin-top: 10px;"></div>
+        </div>
+        <div class="card">
+            <button onclick="ui.togglePanel('roomLoginPanel')" style="width: 100%; border: none; background: none; font-weight: bold; color: var(--primary); text-align: left; padding:0; cursor: pointer;">🔐 空間設定</button>
+            <div id="roomLoginPanel" class="collapse-panel">
+                <label>空間密碼：</label><input type="text" id="editRoomPass" onchange="api.saveRoomConfig()">
+                <label>密碼暗示：</label><input type="text" id="editRoomHint" onchange="api.saveRoomConfig()">
+            </div>
+        </div>
+        <div class="card" style="border: 2px solid #ffc9c9;">
+            <button onclick="ui.accessAdmin()" style="width: 100%; border: none; background: none; font-weight: bold; color: var(--danger); text-align: left; padding:0; cursor: pointer;">🛠️ 系統管理後台</button>
+            <div id="sysConfigPanel" class="collapse-panel">
+                <div id="globalSystemList"></div>
+                <hr>
+                <label>🖼️ 背景圖網址：</label><input type="text" id="editBgUrl" onchange="api.saveRoomConfig()">
+                <label>🔐 管理密鑰：</label><input type="text" id="editAdminPass" onchange="api.saveRoomConfig()">
+                <label>💰 新增幣別：</label>
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="newCurInput" placeholder="如: KRW" style="margin: 0;">
+                    <button onclick="api.addCurrency()" style="padding: 0 12px; border-radius: 8px; border: none; background: var(--primary); color: white; cursor: pointer;">新增</button>
+                </div>
+                <div id="curLabelArea" style="margin-top: 10px;"></div>
+                <hr>
+                <button onclick="api.settleAll()" class="primary-btn" style="background: var(--success);">整趟結清 ✅</button>
+            </div>
+        </div>
+        <button onclick="location.reload()" class="primary-btn" style="background: #868e96; margin-top: 10px;">🚪 退出</button>
+        <div class="footer-version">V84.0 LINE Edition ✈️</div>
+    </div>
+</div>
+
+<!-- 新旅程 Modal -->
+<div id="trip-modal" style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 6000; display: none; align-items: center; justify-content: center; padding: 20px;">
+    <div class="card" style="width: 100%; max-width: 380px; text-align: center;">
+        <h3>🌟 下一站去哪？</h3>
+        <input type="text" id="newTripNameInput" placeholder="新旅程名稱">
+        <p style="font-weight: bold; margin-top: 10px;">結算幣別：</p>
+        <div id="modalCurList"></div>
+        <button class="primary-btn" onclick="api.createNewTrip()" style="margin-top: 20px;">出發 ➔</button>
+        <button onclick="document.getElementById('trip-modal').style.display='none'" style="margin-top: 10px; background:none; border:none; color:gray; cursor:pointer; width:100%; padding: 10px;">取消</button>
+    </div>
+</div>
+
+<!-- 底部導覽 -->
+<nav class="bottom-nav">
+    <div class="nav-item active" id="nav-add" onclick="ui.switchPage('add', this)"><b>✍️</b>記帳</div>
+    <div class="nav-item" id="nav-history" onclick="ui.switchPage('history', this)"><b>📜</b>明細</div>
+    <div class="nav-item" id="nav-settle" onclick="ui.settleClick(this)"><b>📊</b>結算</div>
+    <div class="nav-item" id="nav-manage" onclick="ui.switchPage('manage', this)"><b>⚙️</b>管理</div>
+</nav>
+
+<script>
+    // =============================================
+    // LINE 通知 Cloudflare Worker 網址
+    // =============================================
+    const NOTIFY_URL = 'https://line-notify.eva9321.workers.dev';
+
+    // Firebase 設定
+    const firebaseConfig = {
+        apiKey: "AIzaSyA0ihW3ZPIrEHLPay1_psV_qrUn9jqAtuU",
+        authDomain: "babyhan-11286.firebaseapp.com",
+        databaseURL: "https://babyhan-11286-default-rtdb.firebaseio.com",
+        projectId: "babyhan-11286"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const DATA_ROOT = 'travelSystem_V32';
+
+    let roomKey = "", currentRoomName = "", currentTripId = "default";
+    let isMultiPayer = false, myChart = null, selCur = "TWD", editingIdx = null, isRendering = false;
+    let roomData = {
+        pass: "0000", hint: "0000", adminPass: "0625",
+        config: { bgUrl: "", currencies: ["TWD","JPY","USD"] },
+        trips: {}, archives: {}, currentTripId: "default"
+    };
+    let allRooms = {};
+
+    const getSafeKey = (str) => btoa(encodeURIComponent(str));
+
+    // =============================================
+    // Toast 提示
+    // =============================================
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.innerText = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    // =============================================
+    // LINE 通知
+    // =============================================
+    async function lineNotify(msg) {
+        try {
+            await fetch(NOTIFY_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: msg })
+            });
+        } catch(e) {
+            console.log('LINE notify failed:', e);
+        }
+    }
+
+    // 監聽所有空間（登入頁顯示用）
+    db.ref(DATA_ROOT).on('value', s => {
+        allRooms = s.val() || {};
+        const area = document.getElementById('roomListArea');
+        if(area) area.innerHTML = Object.keys(allRooms).map(k => {
+            let decoded = "未知";
+            try { decoded = decodeURIComponent(atob(k)); } catch(e){}
+            return `<div class="cur-tag" style="background:white; color:var(--primary);" onclick="document.getElementById('roomNameInput').value='${decoded}'; api.checkRoom()">${decoded}</div>`;
+        }).join('');
+    });
+
+    const api = {
+        attachRoomListener: () => {
+            if(!roomKey) return;
+            db.ref(`${DATA_ROOT}/${roomKey}`).off();
+            db.ref(`${DATA_ROOT}/${roomKey}`).on('value', s => {
+                const d = s.val();
+                if(d) {
+                    roomData = d;
+                    currentTripId = roomData.currentTripId || "default";
+                    const state = (roomData.trips && roomData.trips[currentTripId]) ? roomData.trips[currentTripId] : null;
+                    if(state) ui.render(state);
+                    if(roomData.config?.bgUrl) document.body.style.backgroundImage = `url('${roomData.config.bgUrl}')`;
+                }
+            });
+        },
+
+        checkRoom: () => {
+            const name = document.getElementById('roomNameInput').value.trim();
+            const rKey = getSafeKey(name);
+            const existingRoom = allRooms[rKey];
+            let availableCurs = ["TWD", "JPY", "USD"];
+            for (let key in allRooms) {
+                if (allRooms[key].config?.currencies) { availableCurs = allRooms[key].config.currencies; break; }
+            }
+            document.getElementById('newRoomSetup').style.display = (name && !existingRoom) ? 'block' : 'none';
+            const curHTML = availableCurs.map(c => `<div class="cur-tag ${selCur===c?'active':''}" onclick="selCur='${c}'; api.checkRoom()">${c}</div>`).join('');
+            if(document.getElementById('loginCurList')) document.getElementById('loginCurList').innerHTML = curHTML;
+            if(document.getElementById('modalCurList')) document.getElementById('modalCurList').innerHTML = curHTML;
+        },
+
+        initRoom: () => {
+            const name = document.getElementById('roomNameInput').value.trim();
+            const pass = document.getElementById('roomPassInput').value.trim();
+            if(!name || !pass) return showToast('請填入空間名稱和密碼');
+            roomKey = getSafeKey(name);
+            currentRoomName = name;
+            db.ref(`${DATA_ROOT}/${roomKey}`).once('value', s => {
+                const d = s.val();
+                if(d) {
+                    if(d.pass !== pass) return document.getElementById('roomHintTxt').innerText = "提示：" + (d.hint || "密碼錯誤");
+                    roomData = d; api.attachRoomListener(); enterUI();
+                } else {
+                    let latestCurs = ["TWD","JPY","USD"];
+                    for (let key in allRooms) { if (allRooms[key].config?.currencies) { latestCurs = allRooms[key].config.currencies; break; } }
+                    const initialData = {
+                        pass, hint: "0000", adminPass: "0625", currentTripId: "default",
+                        config: { bgUrl: "", currencies: latestCurs },
+                        archives: { "default": name },
+                        trips: { "default": { title: name, members: [], bills: [], tripCurrency: selCur, notice: "" } }
+                    };
+                    db.ref(`${DATA_ROOT}/${roomKey}`).set(initialData).then(() => {
+                        roomData = initialData; api.attachRoomListener(); enterUI();
+                    });
+                }
+            });
+        },
+
+        saveState: () => {
+            if(isRendering || !roomKey) return;
+            const state = roomData.trips[currentTripId];
+            if(state) {
+                state.title = document.getElementById('tripTitle').value;
+                state.notice = document.getElementById('noticeContent').value;
+                db.ref(`${DATA_ROOT}/${roomKey}/trips/${currentTripId}`).update({ title: state.title, notice: state.notice });
+            }
+        },
+
+        saveRoomConfig: () => {
+            if(isRendering || !roomKey) return;
+            roomData.pass = document.getElementById('editRoomPass').value || "0000";
+            roomData.hint = document.getElementById('editRoomHint').value || "0000";
+            roomData.adminPass = document.getElementById('editAdminPass').value || "0625";
+            roomData.config.bgUrl = document.getElementById('editBgUrl').value;
+            db.ref(`${DATA_ROOT}/${roomKey}`).update({ pass: roomData.pass, hint: roomData.hint, adminPass: roomData.adminPass, config: roomData.config });
+        },
+
+        // ✅ 修正：多人代付驗證 + LINE 通知
+        addBill: () => {
+            const state = roomData.trips[currentTripId];
+            const desc = document.getElementById('billDesc').value.trim();
+            const amt = parseFloat(document.getElementById('billAmount').value);
+            if(!desc || isNaN(amt) || amt <= 0) return showToast('請輸入描述和有效金額！');
+
+            let payers = {};
+            if(isMultiPayer) {
+                let total = 0;
+                document.querySelectorAll('.multi-payer-input').forEach(el => {
+                    const v = parseFloat(el.value);
+                    if(v > 0) { payers[el.dataset.name] = v; total += v; }
+                });
+                if(Object.keys(payers).length === 0) return showToast('多人代付請至少填一人金額！');
+                if(Math.abs(total - amt) > 0.1) return showToast(`代付總額 ${total} 與帳單金額 ${amt} 不符！`);
+            } else {
+                const payerVal = document.getElementById('billPayerSelect').value;
+                if(!payerVal) return showToast('請選擇付款人！');
+                payers[payerVal] = amt;
+            }
+
+            const splitBetween = Array.from(document.querySelectorAll('input[name="splitMember"]:checked')).map(el => el.value);
+            if(splitBetween.length === 0) return showToast('至少選一個分攤旅伴！');
+
+            const newBill = {
+                desc, amount: amt,
+                note: document.getElementById('billNote').value,
+                payers, splitBetween,
+                time: editingIdx !== null ? state.bills[editingIdx].time : new Date().toLocaleString('zh-TW')
+            };
+
+            const isEdit = editingIdx !== null;
+            if(isEdit) { state.bills[editingIdx] = newBill; editingIdx = null; }
+            else { if(!state.bills) state.bills = []; state.bills.push(newBill); }
+
+            db.ref(`${DATA_ROOT}/${roomKey}/trips/${currentTripId}/bills`).set(state.bills);
+            ui.cancelEdit();
+            showToast(isEdit ? '✅ 帳目已更新' : '✅ 記帳成功');
+
+            // LINE 通知
+            const tripTitle = state.title || currentRoomName;
+            const payerList = Object.keys(payers).join('、');
+            if(isEdit) {
+                lineNotify(`✏️ [${tripTitle}]\n「${desc}」已更新為 ${amt} ${state.tripCurrency}`);
+            } else {
+                lineNotify(`✍️ [${tripTitle}]\n${payerList} 記了一筆\n「${desc}」${amt} ${state.tripCurrency}\n分攤：${splitBetween.join('、')}`);
+            }
+        },
+
+        // ✅ 修正：刪除有確認 + LINE 通知
+        deleteBill: (idx) => {
+            const state = roomData.trips[currentTripId];
+            const bill = state.bills[idx];
+            if(confirm(`刪除「${bill.desc}」？`)) {
+                state.bills.splice(idx, 1);
+                db.ref(`${DATA_ROOT}/${roomKey}/trips/${currentTripId}/bills`).set(state.bills);
+                showToast('🗑️ 已刪除');
+                lineNotify(`🗑️ [${state.title || currentRoomName}]\n刪除了「${bill.desc}」${bill.amount} ${state.tripCurrency}`);
+            }
+        },
+
+        addMember: () => {
+            const n = document.getElementById('newMemberName').value.trim();
+            if(!n) return;
+            if(!roomData.trips[currentTripId].members) roomData.trips[currentTripId].members = [];
+            if(roomData.trips[currentTripId].members.includes(n)) return showToast('旅伴已存在！');
+            roomData.trips[currentTripId].members.push(n);
+            db.ref(`${DATA_ROOT}/${roomKey}/trips/${currentTripId}/members`).set(roomData.trips[currentTripId].members);
+            document.getElementById('newMemberName').value = '';
+            const tripTitle = roomData.trips[currentTripId].title || currentRoomName;
+            lineNotify(`👤 [${tripTitle}]\n${n} 加入了旅程！`);
+        },
+
+        createNewTrip: () => {
+            const name = document.getElementById('newTripNameInput').value.trim();
+            if(!name) return showToast('請輸入旅程名稱');
+            const newId = "trip_" + Date.now();
+            if(!roomData.archives) roomData.archives = {};
+            roomData.archives[newId] = name;
+            roomData.trips[newId] = {
+                title: name,
+                members: roomData.trips[currentTripId]?.members || [],
+                bills: [], notice: "", tripCurrency: selCur
+            };
+            roomData.currentTripId = newId;
+            db.ref(`${DATA_ROOT}/${roomKey}`).update({
+                archives: roomData.archives, trips: roomData.trips, currentTripId: newId
+            }).then(() => {
+                document.getElementById('trip-modal').style.display = 'none';
+                lineNotify(`🌟 [${currentRoomName}]\n新旅程「${name}」開始了！幣別：${selCur}`);
+            });
+        },
+
+        // ✅ 修正：結清用清楚的標記方式
+        partialSettle: (from, to, amt) => {
+            if(!confirm(`確認「${from}」支付 ${amt} 給「${to}」？`)) return;
+            const state = roomData.trips[currentTripId];
+            const settleBill = {
+                desc: `✅ 結清: ${from}➔${to}`,
+                amount: 0, note: '系統結清',
+                payers: { [from]: amt },
+                splitBetween: [to],
+                time: new Date().toLocaleString('zh-TW')
+            };
+            if(!state.bills) state.bills = [];
+            state.bills.push(settleBill);
+            db.ref(`${DATA_ROOT}/${roomKey}/trips/${currentTripId}/bills`).set(state.bills);
+            showToast(`💰 結清成功`);
+            lineNotify(`💰 [${state.title || currentRoomName}]\n${from} 已還 ${amt} ${state.tripCurrency} 給 ${to} ✅`);
+        },
+
+        deleteGlobalRoom: (k) => {
+            if(confirm("確定要刪除此空間？資料會永久消失！")) db.ref(`${DATA_ROOT}/${k}`).remove();
+        },
+
+        addCurrency: () => {
+            const c = document.getElementById('newCurInput').value.trim().toUpperCase();
+            if(c && !roomData.config.currencies.includes(c)) {
+                roomData.config.currencies.push(c);
+                api.saveRoomConfig();
+                document.getElementById('newCurInput').value = '';
+            }
+        },
+
+        deleteCurrency: (c) => {
+            roomData.config.currencies = roomData.config.currencies.filter(item => item !== c);
+            api.saveRoomConfig();
+        },
+
+        settleAll: () => {
+            if(confirm("清空所有帳目，確定？此操作不可復原！")) {
+                db.ref(`${DATA_ROOT}/${roomKey}/trips/${currentTripId}/bills`).set([]);
+                lineNotify(`🏁 [${roomData.trips[currentTripId]?.title || currentRoomName}]\n旅程帳目已全部結清！`);
+            }
+        }
+    };
+
+    function enterUI() {
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('main-content').style.display = 'block';
+    }
+
+    function togglePayerMode() {
+        isMultiPayer = !isMultiPayer;
+        document.getElementById('singlePayerArea').style.display = isMultiPayer ? 'none' : 'block';
+        document.getElementById('multiPayerArea').style.display = isMultiPayer ? 'grid' : 'none';
+    }
+
+    const ui = {
+        render: (state) => {
+            isRendering = true;
+            document.getElementById('tripTitle').value = state.title || "";
+            document.getElementById('noticeContent').value = state.notice || "";
+            document.getElementById('tripCurBadge').innerText = "結算幣別：" + (state.tripCurrency || "TWD");
+
+            const m = state.members || [];
+            document.getElementById('billPayerSelect').innerHTML = m.map(n => `<option value="${n}">${n}</option>`).join('');
+            document.getElementById('multiPayerArea').innerHTML = m.map(n =>
+                `<div style="background:#f8f9fa; padding:8px; border-radius:10px;">
+                    <small style="font-weight:bold;">${n}</small>
+                    <input type="number" class="multi-payer-input" data-name="${n}" placeholder="金額" style="margin:4px 0 0 0; padding:6px; font-size:0.85rem;" inputmode="decimal">
+                </div>`
+            ).join('');
+            document.getElementById('splitCheckboxes').innerHTML = m.map(n =>
+                `<label class="cur-tag active" id="label-${n}">
+                    <input type="checkbox" name="splitMember" value="${n}" checked style="display:none;"
+                    onchange="document.getElementById('label-${n}').className = this.checked ? 'cur-tag active' : 'cur-tag'">${n}
+                </label>`
+            ).join('');
+            document.getElementById('memberList').innerHTML = m.map((n, i) =>
+                `<span class="cur-tag active">${n}
+                    <small style="cursor:pointer; margin-left:4px;" onclick="
+                        if(confirm('移除 ${n}？')) {
+                            roomData.trips[currentTripId].members.splice(${i},1);
+                            db.ref('${DATA_ROOT}/'+roomKey+'/trips/'+currentTripId+'/members').set(roomData.trips[currentTripId].members);
+                        }
+                    ">×</small>
+                </span>`
+            ).join('');
+
+            // 明細列表（依日期分組）
+            let historyHTML = "", lastDate = "";
+            const sortedBills = (state.bills || []).slice().reverse();
+            sortedBills.forEach((b, i) => {
+                const realIdx = state.bills.length - 1 - i;
+                const timeParts = (b.time || "").split(' ');
+                const dPart = timeParts[0] || "未知日期";
+                const tPart = timeParts.slice(1).join(' ') || "";
+                if(dPart !== lastDate) {
+                    historyHTML += `<div style="text-align:center; margin: 25px 0 15px 0;">
+                        <span style="background:rgba(255,255,255,0.8); padding:5px 15px; border-radius:50px; font-size:0.8rem; font-weight:bold; color:var(--primary);">🗓️ ${dPart}</span>
+                    </div>`;
+                    lastDate = dPart;
+                }
+                const isSettle = b.amount === 0;
+                historyHTML += `<div class="history-card" ${isSettle ? 'style="border-left-color: var(--success);"' : ''}>
+                    <div class="history-header">
+                        <span class="history-title">${b.desc}</span>
+                        <span class="history-amount">${isSettle ? '' : b.amount + ' <small>' + state.tripCurrency + '</small>'}</span>
+                    </div>
+                    <div class="history-meta">
+                        <span>🕒 ${tPart}</span>
+                        ${b.note ? `<span>💬 ${b.note}</span>` : ''}
+                    </div>
+                    <div class="history-tags">
+                        ${Object.keys(b.payers).map(p => `<span class="tag-pill payer">💳 ${p}</span>`).join('')}
+                        ${b.splitBetween.map(s => `<span class="tag-pill">👥 ${s}</span>`).join('')}
+                    </div>
+                    ${isSettle ? '' : `<div class="history-actions">
+                        <button class="action-btn edit-btn" onclick="ui.editBill(${realIdx})">✏️ 編輯</button>
+                        <button class="action-btn del-btn" onclick="api.deleteBill(${realIdx})">🗑️ 刪除</button>
+                    </div>`}
+                </div>`;
+            });
+            document.getElementById('historyList').innerHTML = historyHTML ||
+                '<p style="text-align:center; color:gray; margin-top:20px; padding: 20px;">還沒有任何記錄 ✈️</p>';
+
+            // 旅程清單
+            document.getElementById('archiveList').innerHTML = Object.keys(roomData.archives || {}).map(id =>
+                `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:#f8f9fa; border-radius:10px; margin-bottom:8px; border:2px solid ${id===currentTripId?'var(--primary)':'transparent'};">
+                    <span style="font-size:0.85rem; flex:1; font-weight:${id===currentTripId?'bold':'normal'};">${id===currentTripId?'▶ ':''} ${roomData.archives[id]}</span>
+                    ${id !== currentTripId ? `<button onclick="roomData.currentTripId='${id}'; db.ref('${DATA_ROOT}/'+roomKey+'/currentTripId').set('${id}')" style="background:var(--primary); color:white; border:none; border-radius:8px; padding:5px 12px; font-size:0.75rem; cursor:pointer;">切換</button>` : '<span style="font-size:0.75rem; color:var(--primary);">目前使用中</span>'}
+                </div>`
+            ).join('');
+
+            // 系統管理
+            document.getElementById('globalSystemList').innerHTML = Object.keys(allRooms).map(k => {
+                let d = "未知"; try { d = decodeURIComponent(atob(k)); } catch(e){}
+                return `<div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee; align-items:center;">
+                    <strong>${d}</strong>
+                    <button onclick="api.deleteGlobalRoom('${k}')" style="color:red; border:1px solid red; background:none; border-radius:6px; padding:3px 10px; cursor:pointer; font-size:0.75rem;">刪除</button>
+                </div>`;
+            }).join('');
+
+            const fields = { editRoomPass: roomData.pass, editRoomHint: roomData.hint, editAdminPass: roomData.adminPass, editBgUrl: roomData.config?.bgUrl };
+            Object.entries(fields).forEach(([id, val]) => { const el = document.getElementById(id); if(el) el.value = val || ""; });
+            document.getElementById('curLabelArea').innerHTML = (roomData.config?.currencies || []).map(c =>
+                `<span class="cur-tag active">${c} <span style="margin-left:5px; cursor:pointer;" onclick="api.deleteCurrency('${c}')">×</span></span>`
+            ).join('');
+
+            setTimeout(() => { isRendering = false; }, 100);
+        },
+
+        // ✅ 修正：編輯切頁正確
+        editBill: (idx) => {
+            const b = roomData.trips[currentTripId].bills[idx];
+            editingIdx = idx;
+            document.getElementById('billDesc').value = b.desc;
+            document.getElementById('billAmount').value = b.amount;
+            document.getElementById('billNote').value = b.note || "";
+            document.querySelectorAll('input[name="splitMember"]').forEach(c => {
+                c.checked = b.splitBetween.includes(c.value);
+                const label = document.getElementById(`label-${c.value}`);
+                if(label) label.className = c.checked ? 'cur-tag active' : 'cur-tag';
+            });
+            if(Object.keys(b.payers).length > 1) {
+                if(!isMultiPayer) togglePayerMode();
+                document.querySelectorAll('.multi-payer-input').forEach(el => el.value = b.payers[el.dataset.name] || "");
+            } else {
+                if(isMultiPayer) togglePayerMode();
+                document.getElementById('billPayerSelect').value = Object.keys(b.payers)[0];
+            }
+            document.getElementById('addBillTitle').innerText = "✏️ 編輯帳目";
+            document.getElementById('submitBillBtn').innerText = "更新 ➔";
+            document.getElementById('cancelEditBtn').style.display = "block";
+            // ✅ 正確切換到記帳頁
+            ui.switchPage('add', document.getElementById('nav-add'));
+        },
+
+        cancelEdit: () => {
+            editingIdx = null;
+            document.getElementById('billDesc').value = "";
+            document.getElementById('billAmount').value = "";
+            document.getElementById('billNote').value = "";
+            document.getElementById('addBillTitle').innerText = "✍️ 記一筆花費";
+            document.getElementById('submitBillBtn').innerText = "確認記帳 📥";
+            document.getElementById('cancelEditBtn').style.display = "none";
+        },
+
+        toggleAllSplit: (status) => {
+            document.querySelectorAll('input[name="splitMember"]').forEach(c => {
+                c.checked = status;
+                const label = document.getElementById(`label-${c.value}`);
+                if(label) label.className = status ? 'cur-tag active' : 'cur-tag';
+            });
+        },
+
+        togglePanel: (id) => {
+            const p = document.getElementById(id);
+            p.style.display = p.style.display === 'block' ? 'none' : 'block';
+        },
+
+        openNewTripModal: () => {
+            document.getElementById('trip-modal').style.display = 'flex';
+            api.checkRoom();
+        },
+
+        // ✅ 修正：結算只在切換到結算頁時才執行
+        calcSettlement: (state) => {
+            const members = state.members || [], bills = state.bills || [];
+            const netPaid = {}; members.forEach(m => netPaid[m] = 0);
+
+            bills.forEach(b => {
+                if(b.amount === 0 && b.splitBetween.length === 1) {
+                    // 結清記錄：扣除受款人的淨付出
+                    const receiver = b.splitBetween[0];
+                    const settleAmt = Object.values(b.payers)[0];
+                    if(netPaid[receiver] !== undefined) netPaid[receiver] -= settleAmt;
+                } else {
+                    Object.entries(b.payers).forEach(([p, a]) => { if(netPaid[p] !== undefined) netPaid[p] += a; });
+                }
+            });
+            members.forEach(m => { if(netPaid[m] < 0) netPaid[m] = 0; });
+
+            const bal = {}; members.forEach(m => bal[m] = 0);
+            bills.forEach(b => {
+                Object.entries(b.payers).forEach(([p, a]) => { if(bal[p] !== undefined) bal[p] += a; });
+                if(b.amount > 0) {
+                    const share = b.amount / b.splitBetween.length;
+                    b.splitBetween.forEach(m => { if(bal[m] !== undefined) bal[m] -= share; });
+                }
+            });
+
+            const debtors = [], creditors = [];
+            Object.entries(bal).forEach(([name, balance]) => {
+                if(balance < -0.1) debtors.push({ name, amt: -balance });
+                else if(balance > 0.1) creditors.push({ name, amt: balance });
+            });
+
+            let h = "";
+            const tempCreditors = JSON.parse(JSON.stringify(creditors));
+            debtors.forEach(d => {
+                let remaining = d.amt;
+                tempCreditors.forEach(c => {
+                    if(remaining > 0.1 && c.amt > 0.1) {
+                        const pay = Math.min(remaining, c.amt);
+                        h += `<div style="padding:12px; background:rgba(255,255,255,0.8); border-radius:15px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; border:1px solid #eee;">
+                            <div style="font-size:0.9rem;"><b>${d.name}</b> ➔ <span style="color:var(--danger); font-weight:900;">${pay.toFixed(0)}</span> ➔ <b>${c.name}</b></div>
+                            <button onclick="ui.partialSettle('${d.name}','${c.name}',${pay.toFixed(0)})" style="background:var(--success); color:white; border:none; padding:6px 12px; border-radius:8px; font-size:0.75rem; cursor:pointer; white-space:nowrap;">結清</button>
+                        </div>`;
+                        remaining -= pay; c.amt -= pay;
+                    }
+                });
+            });
+            document.getElementById('settlementResult').innerHTML = h || '<p style="text-align:center; color:gray; padding:20px;">帳目平衡，沒有人欠錢 ✨</p>';
+
+            if(myChart) myChart.destroy();
+            myChart = new Chart(document.getElementById('spendChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(netPaid),
+                    datasets: [{ data: Object.values(netPaid), backgroundColor: ['#339af0','#ff922b','#51cf66','#fcc419','#cc5de8','#20c997','#f06595','#74c0fc'] }]
+                },
+                options: { plugins: { legend: { position: 'bottom' } }, responsive: true }
+            });
+        },
+
+        partialSettle: (from, to, amt) => api.partialSettle(from, to, amt),
+
+        switchPage: (p, el) => {
+            document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+            document.getElementById('page-'+p).classList.add('active');
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            el.classList.add('active');
+        },
+
+        // ✅ 修正：結算頁才計算
+        settleClick: (el) => {
+            ui.switchPage('settle', el);
+            const state = roomData.trips[currentTripId];
+            if(state) ui.calcSettlement(state);
+        },
+
+        accessAdmin: () => {
+            const p = document.getElementById('sysConfigPanel');
+            if(p.style.display === 'block') { p.style.display = 'none'; return; }
+            const input = prompt("管理密鑰：");
+            if(input === (roomData.adminPass || "0625")) p.style.display = 'block';
+            else if(input !== null) showToast('密碼錯誤');
+        }
+    };
+</script>
+</body>
+</html>
